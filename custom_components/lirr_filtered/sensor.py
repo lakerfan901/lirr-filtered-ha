@@ -34,12 +34,14 @@ async def async_setup_entry(
 ) -> None:
     """Set up the sensor platform."""
     coordinators: list[LIRRDataUpdateCoordinator] = entry.runtime_data
-    
+
     sensors = []
     for coordinator in coordinators:
-        for idx in range(coordinator.departure_limit):
-            sensors.append(LIRRDepartureSensor(coordinator, entry, idx))
-    
+        # Create sensors for each direction filter
+        for direction_filter in coordinator.direction_filters:
+            for idx in range(coordinator.departure_limit):
+                sensors.append(LIRRDepartureSensor(coordinator, entry, direction_filter, idx))
+
     async_add_entities(sensors, update_before_add=True)
 
 
@@ -56,47 +58,56 @@ class LIRRDepartureSensor(CoordinatorEntity, SensorEntity):
         self,
         coordinator: LIRRDataUpdateCoordinator,
         entry: ConfigEntry,
+        direction_filter: str,
         idx: int
     ) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
         self.entry = entry
+        self.direction_filter = direction_filter
         self.idx = idx
-        self._attr_name = f"LIRR {coordinator.station_name} Departure {idx + 1}"
-        self._attr_unique_id = f"lirr_{entry.entry_id}_{coordinator.stop_id}_{idx}"
+        self._attr_name = f"{direction_filter} {idx + 1}"
+        self._attr_unique_id = f"lirr_{entry.entry_id}_{coordinator.stop_id}_{direction_filter}_{idx}"
 
     @property
     def native_value(self):
         """Return the state of the sensor in seconds."""
-        if not self.coordinator.data or len(self.coordinator.data) <= self.idx:
+        if not self.coordinator.data:
             return None
-        
-        departure = self.coordinator.data[self.idx]
+
+        filter_data = self.coordinator.data.get(self.direction_filter, [])
+        if len(filter_data) <= self.idx:
+            return None
+
+        departure = filter_data[self.idx]
         return departure['minutes_until'] * 60
 
     @property
     def extra_state_attributes(self):
         """Return the state attributes."""
-        if not self.coordinator.data or len(self.coordinator.data) <= self.idx:
-            return {
-                ATTR_STATION: self.coordinator.station_name,
-                ATTR_STOP_ID: self.coordinator.stop_id,
-                ATTR_DIRECTION_FILTER: self.coordinator.direction_filter,
-                ATTR_ROUTE_FILTER: self.coordinator.route_filter,
-            }
-        
-        departure = self.coordinator.data[self.idx]
-        
+        base_attrs = {
+            ATTR_STATION: self.coordinator.station_name,
+            ATTR_STOP_ID: self.coordinator.stop_id,
+            ATTR_DIRECTION_FILTER: self.direction_filter,
+            ATTR_ROUTE_FILTER: self.coordinator.route_filter,
+        }
+
+        if not self.coordinator.data:
+            return base_attrs
+
+        filter_data = self.coordinator.data.get(self.direction_filter, [])
+        if len(filter_data) <= self.idx:
+            return base_attrs
+
+        departure = filter_data[self.idx]
+
         return {
+            **base_attrs,
             ATTR_HEADSIGN: departure['headsign'],
             ATTR_DEPARTURE_TIME: departure['departure_time'],
             ATTR_MINUTES_UNTIL: departure['minutes_until'],
             ATTR_ROUTE_ID: departure['route_id'],
             ATTR_TRIP_ID: departure['trip_id'],
-            ATTR_STATION: self.coordinator.station_name,
-            ATTR_STOP_ID: self.coordinator.stop_id,
-            ATTR_DIRECTION_FILTER: self.coordinator.direction_filter,
-            ATTR_ROUTE_FILTER: self.coordinator.route_filter,
         }
 
     @property

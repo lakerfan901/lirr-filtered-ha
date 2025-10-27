@@ -7,6 +7,7 @@ CONF_STATIONS = "stations"
 CONF_STOP_ID = "stop_id"
 CONF_STATION_NAME = "station_name"
 CONF_DIRECTION_FILTER = "direction_filter"
+CONF_DIRECTION_FILTERS = "direction_filters"  # List of direction filter names
 CONF_ROUTE_FILTER = "route_filter"
 CONF_DEPARTURE_LIMIT = "departure_limit"
 

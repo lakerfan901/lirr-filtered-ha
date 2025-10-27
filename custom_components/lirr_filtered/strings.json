@@ -2,14 +2,58 @@
   "config": {
     "step": {
       "user": {
-        "title": "Set up LIRR Filtered Departures",
-        "description": "Configure your LIRR station and filters.\n\nStation Name: {station_name_example}\nStop ID: {stop_id_example}\nDirection Filter: {direction_filter_example}\nRoute Filter: {route_filter_example}",
+        "title": "Configure LIRR Station",
+        "description": "Configure your LIRR station information.\n\nStation Name: {station_name_example}\nStop ID: {stop_id_example}",
         "data": {
           "station_name": "Station Name",
           "stop_id": "Stop ID",
-          "direction_filter": "Direction Filter (optional)",
-          "route_filter": "Route Filter (optional)",
-          "departure_limit": "Number of Departures to Show"
+          "departure_limit": "Number of Departures per Filter"
+        }
+      },
+      "add_direction_filter": {
+        "title": "Add Direction Filters",
+        "description": "{description}",
+        "data": {
+          "direction_filter_name": "Direction Filter Name (e.g., 'Penn Station', 'Grand Central')",
+          "add_another": "Add another filter?"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Manage LIRR Station",
+        "description": "Station: {station_name}\nStop ID: {stop_id}\nDepartures per filter: {departure_limit}\n\nDirection Filters:\n{filters}",
+        "data": {
+          "action": "Action"
+        }
+      },
+      "edit_station": {
+        "title": "Edit Station Configuration",
+        "data": {
+          "station_name": "Station Name",
+          "stop_id": "Stop ID",
+          "departure_limit": "Number of Departures per Filter"
+        }
+      },
+      "edit_filters": {
+        "title": "Edit Direction Filters",
+        "description": "Current filters:\n{filters}",
+        "data": {
+          "action": "Action"
+        }
+      },
+      "add_filter": {
+        "title": "Add Direction Filter",
+        "data": {
+          "direction_filter_name": "Direction Filter Name (e.g., 'Penn Station', 'Grand Central')"
+        }
+      },
+      "delete_filter": {
+        "title": "Delete Direction Filter",
+        "data": {
+          "filter_idx": "Select filter to delete"
         }
       }
     }
