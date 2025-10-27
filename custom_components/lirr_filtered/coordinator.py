@@ -173,6 +173,20 @@ class LIRRDataUpdateCoordinator(DataUpdateCoordinator):
                     # Sort all departures by time
                     all_departures.sort(key=lambda x: x['minutes_until'])
 
+                    _LOGGER.info(
+                        "LIRR Update: stop_id=%s, found %d total departures before filtering",
+                        self.stop_id,
+                        len(all_departures),
+                    )
+
+                    # Log all unique headsigns for debugging
+                    unique_headsigns = sorted(set(d['headsign'] for d in all_departures))
+                    _LOGGER.info(
+                        "Available headsigns at stop %s: %s",
+                        self.stop_id,
+                        unique_headsigns,
+                    )
+
                     # Filter departures by each direction filter
                     result = {}
 
@@ -180,19 +194,49 @@ class LIRRDataUpdateCoordinator(DataUpdateCoordinator):
                         if direction_filter == "All Trains":
                             # No filtering, just take the next N departures
                             result[direction_filter] = all_departures[:self.departure_limit]
+                            _LOGGER.info(
+                                "Filter '%s': Selected %d departures (no filtering)",
+                                direction_filter,
+                                len(result[direction_filter]),
+                            )
                         else:
                             # Filter by headsign
                             filtered = []
                             filters = [f.strip() for f in direction_filter.split('|') if f.strip()]
 
+                            _LOGGER.info(
+                                "Applying filter '%s' (looking for: %s)",
+                                direction_filter,
+                                filters,
+                            )
+
                             for departure in all_departures:
                                 headsign = departure['headsign']
-                                if any(f.lower() in headsign.lower() for f in filters):
+                                matched = any(f.lower() in headsign.lower() for f in filters)
+
+                                if matched:
                                     filtered.append(departure)
+                                    _LOGGER.debug(
+                                        "  ✓ Matched: '%s' at %s (%d min)",
+                                        headsign,
+                                        departure['departure_time'],
+                                        departure['minutes_until'],
+                                    )
                                     if len(filtered) >= self.departure_limit:
                                         break
+                                else:
+                                    _LOGGER.debug(
+                                        "  ✗ Skipped: '%s' (doesn't match filter)",
+                                        headsign,
+                                    )
 
                             result[direction_filter] = filtered
+                            _LOGGER.info(
+                                "Filter '%s': Found %d/%d matching departures",
+                                direction_filter,
+                                len(filtered),
+                                self.departure_limit,
+                            )
 
                     _LOGGER.info(
                         "LIRR Update: stop_id=%s, matched %d stops, organized into %d direction filters",
@@ -202,8 +246,8 @@ class LIRRDataUpdateCoordinator(DataUpdateCoordinator):
                     )
 
                     for filter_name, departures in result.items():
-                        _LOGGER.debug(
-                            "  Filter '%s': %d departures",
+                        _LOGGER.info(
+                            "  Filter '%s': %d departures returned",
                             filter_name,
                             len(departures)
                         )
