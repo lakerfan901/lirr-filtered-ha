@@ -37,11 +37,26 @@ async def async_setup_entry(
 
     sensors = []
     for coordinator in coordinators:
+        _LOGGER.info(
+            "Creating sensors for coordinator: station=%s, stop_id=%s, direction_filters=%s, departure_limit=%d",
+            coordinator.station_name,
+            coordinator.stop_id,
+            coordinator.direction_filters,
+            coordinator.departure_limit,
+        )
+
         # Create sensors for each direction filter
         for direction_filter in coordinator.direction_filters:
             for idx in range(coordinator.departure_limit):
-                sensors.append(LIRRDepartureSensor(coordinator, entry, direction_filter, idx))
+                sensor = LIRRDepartureSensor(coordinator, entry, direction_filter, idx)
+                sensors.append(sensor)
+                _LOGGER.debug(
+                    "Created sensor: name='%s', unique_id='%s'",
+                    sensor.name,
+                    sensor.unique_id,
+                )
 
+    _LOGGER.info("Total sensors created: %d", len(sensors))
     async_add_entities(sensors, update_before_add=True)
 
 
@@ -53,6 +68,7 @@ class LIRRDepartureSensor(CoordinatorEntity, SensorEntity):
     _attr_native_unit_of_measurement = UnitOfTime.SECONDS
     _attr_suggested_unit_of_measurement = UnitOfTime.MINUTES
     _attr_suggested_display_precision = 0
+    _attr_has_entity_name = True
 
     def __init__(
         self,
@@ -66,8 +82,13 @@ class LIRRDepartureSensor(CoordinatorEntity, SensorEntity):
         self.entry = entry
         self.direction_filter = direction_filter
         self.idx = idx
+
+        # Use sanitized filter name for entity naming
+        # Replace spaces and special characters for cleaner entity IDs
+        filter_safe = direction_filter.lower().replace(" ", "_").replace("|", "_")
+
         self._attr_name = f"{direction_filter} {idx + 1}"
-        self._attr_unique_id = f"lirr_{entry.entry_id}_{coordinator.stop_id}_{direction_filter}_{idx}"
+        self._attr_unique_id = f"lirr_{entry.entry_id}_{coordinator.stop_id}_{filter_safe}_{idx}"
 
     @property
     def native_value(self):
