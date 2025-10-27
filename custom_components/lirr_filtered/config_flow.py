@@ -15,8 +15,7 @@ from homeassistant.helpers.selector import (
 
 from .const import (
     CONF_DEPARTURE_LIMIT,
-    CONF_DIRECTION_FILTER,
-    CONF_ROUTE_FILTER,
+    CONF_DIRECTION_FILTERS,
     CONF_STATION_NAME,
     CONF_STATIONS,
     CONF_STOP_ID,
@@ -32,34 +31,25 @@ class LIRRFilteredConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     def __init__(self):
         """Initialize the config flow."""
-        self.stations = []
+        self.station_name = None
+        self.stop_id = None
+        self.departure_limit = DEFAULT_DEPARTURE_LIMIT
+        self.direction_filters = []
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
-        """Handle the initial step."""
+        """Handle the initial step - station configuration."""
         if user_input is not None:
-            # First station added
-            station_config = {
-                CONF_STATION_NAME: user_input[CONF_STATION_NAME],
-                CONF_STOP_ID: user_input[CONF_STOP_ID],
-                CONF_DIRECTION_FILTER: user_input.get(CONF_DIRECTION_FILTER, ""),
-                CONF_ROUTE_FILTER: user_input.get(CONF_ROUTE_FILTER, ""),
-                CONF_DEPARTURE_LIMIT: int(user_input.get(CONF_DEPARTURE_LIMIT, DEFAULT_DEPARTURE_LIMIT)),
-            }
-            self.stations.append(station_config)
+            self.station_name = user_input[CONF_STATION_NAME]
+            self.stop_id = user_input[CONF_STOP_ID]
+            self.departure_limit = int(user_input.get(CONF_DEPARTURE_LIMIT, DEFAULT_DEPARTURE_LIMIT))
 
-            return await self.async_step_add_another()
+            return await self.async_step_add_direction_filter()
 
         data_schema = vol.Schema({
             vol.Required(CONF_STATION_NAME): TextSelector(
                 TextSelectorConfig(multiline=False)
             ),
             vol.Required(CONF_STOP_ID): TextSelector(
-                TextSelectorConfig(multiline=False)
-            ),
-            vol.Optional(CONF_DIRECTION_FILTER, default=""): TextSelector(
-                TextSelectorConfig(multiline=False)
-            ),
-            vol.Optional(CONF_ROUTE_FILTER, default=""): TextSelector(
                 TextSelectorConfig(multiline=False)
             ),
             vol.Required(CONF_DEPARTURE_LIMIT, default=DEFAULT_DEPARTURE_LIMIT): NumberSelector(
@@ -71,82 +61,58 @@ class LIRRFilteredConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="user",
             data_schema=data_schema,
             description_placeholders={
-                "station_name_example": "e.g., Valley Stream Westbound",
+                "station_name_example": "e.g., Valley Stream",
                 "stop_id_example": "e.g., 211",
             }
         )
 
-    async def async_step_add_station(self, user_input: dict[str, Any] | None = None):
-        """Add another station configuration."""
+    async def async_step_add_direction_filter(self, user_input: dict[str, Any] | None = None):
+        """Add a direction filter."""
         if user_input is not None:
-            # Add this station to the list
-            station_config = {
-                CONF_STATION_NAME: user_input[CONF_STATION_NAME],
-                CONF_STOP_ID: user_input[CONF_STOP_ID],
-                CONF_DIRECTION_FILTER: user_input.get(CONF_DIRECTION_FILTER, ""),
-                CONF_ROUTE_FILTER: user_input.get(CONF_ROUTE_FILTER, ""),
-                CONF_DEPARTURE_LIMIT: int(user_input.get(CONF_DEPARTURE_LIMIT, DEFAULT_DEPARTURE_LIMIT)),
-            }
-            self.stations.append(station_config)
+            filter_name = user_input.get("direction_filter_name", "").strip()
 
-            # Go back to ask if they want to add another
-            return await self.async_step_add_another()
+            if filter_name:
+                self.direction_filters.append(filter_name)
 
-        data_schema = vol.Schema({
-            vol.Required(CONF_STATION_NAME): TextSelector(
-                TextSelectorConfig(multiline=False)
-            ),
-            vol.Required(CONF_STOP_ID): TextSelector(
-                TextSelectorConfig(multiline=False)
-            ),
-            vol.Optional(CONF_DIRECTION_FILTER, default=""): TextSelector(
-                TextSelectorConfig(multiline=False)
-            ),
-            vol.Optional(CONF_ROUTE_FILTER, default=""): TextSelector(
-                TextSelectorConfig(multiline=False)
-            ),
-            vol.Required(CONF_DEPARTURE_LIMIT, default=DEFAULT_DEPARTURE_LIMIT): NumberSelector(
-                NumberSelectorConfig(min=1, max=20, step=1, mode=NumberSelectorMode.BOX)
-            ),
-        })
-
-        station_count = len(self.stations)
-        description = f"You have added {station_count} station(s). Add another station."
-
-        return self.async_show_form(
-            step_id="add_station",
-            data_schema=data_schema,
-            description_placeholders={
-                "description": description,
-            }
-        )
-
-    async def async_step_add_another(self, user_input: dict[str, Any] | None = None):
-        """Ask if user wants to add another station."""
-        if user_input is not None:
             if user_input.get("add_another"):
-                return await self.async_step_add_station()
+                # Add another filter
+                return await self.async_step_add_direction_filter()
             else:
-                # Create the entry with all stations
-                title = f"LIRR ({len(self.stations)} station{'s' if len(self.stations) > 1 else ''})"
+                # Finish configuration
+                if not self.direction_filters:
+                    # No filters added, add a default one
+                    self.direction_filters = ["All Trains"]
+
+                station_config = {
+                    CONF_STATION_NAME: self.station_name,
+                    CONF_STOP_ID: self.stop_id,
+                    CONF_DEPARTURE_LIMIT: self.departure_limit,
+                    CONF_DIRECTION_FILTERS: self.direction_filters,
+                }
+
+                title = f"LIRR {self.station_name}"
                 return self.async_create_entry(
                     title=title,
-                    data={CONF_STATIONS: self.stations},
+                    data={CONF_STATIONS: [station_config]},
                 )
 
-        # Show summary of added stations
-        stations_summary = "\n".join([
-            f"{i+1}. {s[CONF_STATION_NAME]} (Stop: {s[CONF_STOP_ID]})"
-            for i, s in enumerate(self.stations)
-        ])
+        # Build description showing current filters
+        if self.direction_filters:
+            filters_summary = "\n".join([f"{i+1}. {f}" for i, f in enumerate(self.direction_filters)])
+            description = f"Station: {self.station_name}\nFilters added:\n{filters_summary}\n\nAdd another direction filter or finish."
+        else:
+            description = f"Station: {self.station_name}\n\nAdd direction filters (e.g., 'Penn Station', 'Grand Central').\nIf no filters are added, 'All Trains' will be used."
 
         return self.async_show_form(
-            step_id="add_another",
+            step_id="add_direction_filter",
             data_schema=vol.Schema({
+                vol.Optional("direction_filter_name", default=""): TextSelector(
+                    TextSelectorConfig(multiline=False)
+                ),
                 vol.Required("add_another", default=False): bool,
             }),
             description_placeholders={
-                "stations_summary": stations_summary,
+                "description": description,
             }
         )
 
@@ -164,108 +130,56 @@ class LIRROptionsFlowHandler(config_entries.OptionsFlow):
         """Initialize options flow."""
         self.config_entry = config_entry
         self.stations = list(config_entry.data.get(CONF_STATIONS, []))
-        self.current_station_idx = None
+        self.current_station_idx = 0  # We only support one station now
+        self.direction_filters = []
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
-        """Manage the options - show list of stations."""
+        """Manage the options."""
+        if not self.stations:
+            return self.async_abort(reason="no_stations")
+
+        station = self.stations[self.current_station_idx]
+        self.direction_filters = list(station.get(CONF_DIRECTION_FILTERS, ["All Trains"]))
+
         if user_input is not None:
-            if user_input.get("action") == "add":
-                return await self.async_step_add_station()
-            elif user_input.get("action") == "edit":
-                return await self.async_step_select_station_to_edit()
-            elif user_input.get("action") == "delete":
-                return await self.async_step_select_station_to_delete()
+            if user_input.get("action") == "edit_filters":
+                return await self.async_step_edit_filters()
+            elif user_input.get("action") == "edit_station":
+                return await self.async_step_edit_station()
             else:
                 return self.async_create_entry(title="", data={})
 
-        stations_summary = "\n".join([
-            f"{i+1}. {s[CONF_STATION_NAME]} (Stop: {s[CONF_STOP_ID]})"
-            for i, s in enumerate(self.stations)
-        ])
+        filters_summary = "\n".join([f"{i+1}. {f}" for i, f in enumerate(self.direction_filters)])
 
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema({
                 vol.Required("action"): vol.In({
-                    "add": "Add new station",
-                    "edit": "Edit existing station",
-                    "delete": "Delete station",
+                    "edit_station": "Edit station configuration",
+                    "edit_filters": "Edit direction filters",
                     "done": "Done",
                 }),
             }),
             description_placeholders={
-                "stations": stations_summary,
+                "station_name": station[CONF_STATION_NAME],
+                "stop_id": station[CONF_STOP_ID],
+                "departure_limit": str(station[CONF_DEPARTURE_LIMIT]),
+                "filters": filters_summary,
             }
-        )
-
-    async def async_step_add_station(self, user_input: dict[str, Any] | None = None):
-        """Add a new station."""
-        if user_input is not None:
-            station_config = {
-                CONF_STATION_NAME: user_input[CONF_STATION_NAME],
-                CONF_STOP_ID: user_input[CONF_STOP_ID],
-                CONF_DIRECTION_FILTER: user_input.get(CONF_DIRECTION_FILTER, ""),
-                CONF_ROUTE_FILTER: user_input.get(CONF_ROUTE_FILTER, ""),
-                CONF_DEPARTURE_LIMIT: int(user_input.get(CONF_DEPARTURE_LIMIT, DEFAULT_DEPARTURE_LIMIT)),
-            }
-            self.stations.append(station_config)
-            
-            self.hass.config_entries.async_update_entry(
-                self.config_entry,
-                data={CONF_STATIONS: self.stations},
-            )
-            
-            return self.async_create_entry(title="", data={})
-
-        data_schema = vol.Schema({
-            vol.Required(CONF_STATION_NAME): TextSelector(TextSelectorConfig(multiline=False)),
-            vol.Required(CONF_STOP_ID): TextSelector(TextSelectorConfig(multiline=False)),
-            vol.Optional(CONF_DIRECTION_FILTER, default=""): TextSelector(TextSelectorConfig(multiline=False)),
-            vol.Optional(CONF_ROUTE_FILTER, default=""): TextSelector(TextSelectorConfig(multiline=False)),
-            vol.Required(CONF_DEPARTURE_LIMIT, default=DEFAULT_DEPARTURE_LIMIT): NumberSelector(
-                NumberSelectorConfig(min=1, max=20, step=1, mode=NumberSelectorMode.BOX)
-            ),
-        })
-
-        return self.async_show_form(
-            step_id="add_station",
-            data_schema=data_schema,
-        )
-
-    async def async_step_select_station_to_edit(self, user_input: dict[str, Any] | None = None):
-        """Select which station to edit."""
-        if user_input is not None:
-            self.current_station_idx = user_input["station_idx"]
-            return await self.async_step_edit_station()
-
-        station_options = {
-            str(i): f"{s[CONF_STATION_NAME]} (Stop: {s[CONF_STOP_ID]})"
-            for i, s in enumerate(self.stations)
-        }
-
-        return self.async_show_form(
-            step_id="select_station_to_edit",
-            data_schema=vol.Schema({
-                vol.Required("station_idx"): vol.In(station_options),
-            }),
         )
 
     async def async_step_edit_station(self, user_input: dict[str, Any] | None = None):
-        """Edit a station."""
+        """Edit station configuration."""
         if user_input is not None:
-            self.stations[self.current_station_idx] = {
-                CONF_STATION_NAME: user_input[CONF_STATION_NAME],
-                CONF_STOP_ID: user_input[CONF_STOP_ID],
-                CONF_DIRECTION_FILTER: user_input.get(CONF_DIRECTION_FILTER, ""),
-                CONF_ROUTE_FILTER: user_input.get(CONF_ROUTE_FILTER, ""),
-                CONF_DEPARTURE_LIMIT: int(user_input.get(CONF_DEPARTURE_LIMIT, DEFAULT_DEPARTURE_LIMIT)),
-            }
-            
+            self.stations[self.current_station_idx][CONF_STATION_NAME] = user_input[CONF_STATION_NAME]
+            self.stations[self.current_station_idx][CONF_STOP_ID] = user_input[CONF_STOP_ID]
+            self.stations[self.current_station_idx][CONF_DEPARTURE_LIMIT] = int(user_input[CONF_DEPARTURE_LIMIT])
+
             self.hass.config_entries.async_update_entry(
                 self.config_entry,
                 data={CONF_STATIONS: self.stations},
             )
-            
+
             return self.async_create_entry(title="", data={})
 
         station = self.stations[self.current_station_idx]
@@ -277,13 +191,7 @@ class LIRROptionsFlowHandler(config_entries.OptionsFlow):
             vol.Required(CONF_STOP_ID, default=station[CONF_STOP_ID]): TextSelector(
                 TextSelectorConfig(multiline=False)
             ),
-            vol.Optional(CONF_DIRECTION_FILTER, default=station.get(CONF_DIRECTION_FILTER, "")): TextSelector(
-                TextSelectorConfig(multiline=False)
-            ),
-            vol.Optional(CONF_ROUTE_FILTER, default=station.get(CONF_ROUTE_FILTER, "")): TextSelector(
-                TextSelectorConfig(multiline=False)
-            ),
-            vol.Required(CONF_DEPARTURE_LIMIT, default=station.get(CONF_DEPARTURE_LIMIT, DEFAULT_DEPARTURE_LIMIT)): NumberSelector(
+            vol.Required(CONF_DEPARTURE_LIMIT, default=station[CONF_DEPARTURE_LIMIT]): NumberSelector(
                 NumberSelectorConfig(min=1, max=20, step=1, mode=NumberSelectorMode.BOX)
             ),
         })
@@ -293,27 +201,77 @@ class LIRROptionsFlowHandler(config_entries.OptionsFlow):
             data_schema=data_schema,
         )
 
-    async def async_step_select_station_to_delete(self, user_input: dict[str, Any] | None = None):
-        """Select which station to delete."""
+    async def async_step_edit_filters(self, user_input: dict[str, Any] | None = None):
+        """Edit direction filters."""
         if user_input is not None:
-            station_idx = int(user_input["station_idx"])
-            del self.stations[station_idx]
-            
-            self.hass.config_entries.async_update_entry(
-                self.config_entry,
-                data={CONF_STATIONS: self.stations},
-            )
-            
-            return self.async_create_entry(title="", data={})
+            if user_input.get("action") == "add":
+                return await self.async_step_add_filter()
+            elif user_input.get("action") == "delete":
+                return await self.async_step_delete_filter()
+            else:
+                # Save and exit
+                self.stations[self.current_station_idx][CONF_DIRECTION_FILTERS] = self.direction_filters
 
-        station_options = {
-            str(i): f"{s[CONF_STATION_NAME]} (Stop: {s[CONF_STOP_ID]})"
-            for i, s in enumerate(self.stations)
+                self.hass.config_entries.async_update_entry(
+                    self.config_entry,
+                    data={CONF_STATIONS: self.stations},
+                )
+
+                return self.async_create_entry(title="", data={})
+
+        filters_summary = "\n".join([f"{i+1}. {f}" for i, f in enumerate(self.direction_filters)])
+
+        return self.async_show_form(
+            step_id="edit_filters",
+            data_schema=vol.Schema({
+                vol.Required("action"): vol.In({
+                    "add": "Add new filter",
+                    "delete": "Delete filter",
+                    "done": "Done",
+                }),
+            }),
+            description_placeholders={
+                "filters": filters_summary,
+            }
+        )
+
+    async def async_step_add_filter(self, user_input: dict[str, Any] | None = None):
+        """Add a new direction filter."""
+        if user_input is not None:
+            filter_name = user_input.get("direction_filter_name", "").strip()
+            if filter_name and filter_name not in self.direction_filters:
+                self.direction_filters.append(filter_name)
+
+            return await self.async_step_edit_filters()
+
+        return self.async_show_form(
+            step_id="add_filter",
+            data_schema=vol.Schema({
+                vol.Required("direction_filter_name"): TextSelector(
+                    TextSelectorConfig(multiline=False)
+                ),
+            }),
+        )
+
+    async def async_step_delete_filter(self, user_input: dict[str, Any] | None = None):
+        """Delete a direction filter."""
+        if user_input is not None:
+            filter_idx = int(user_input["filter_idx"])
+            del self.direction_filters[filter_idx]
+
+            return await self.async_step_edit_filters()
+
+        if not self.direction_filters:
+            return await self.async_step_edit_filters()
+
+        filter_options = {
+            str(i): f
+            for i, f in enumerate(self.direction_filters)
         }
 
         return self.async_show_form(
-            step_id="select_station_to_delete",
+            step_id="delete_filter",
             data_schema=vol.Schema({
-                vol.Required("station_idx"): vol.In(station_options),
+                vol.Required("filter_idx"): vol.In(filter_options),
             }),
         )

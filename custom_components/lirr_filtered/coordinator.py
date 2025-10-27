@@ -13,7 +13,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .const import (
     CONF_DEPARTURE_LIMIT,
-    CONF_DIRECTION_FILTER,
+    CONF_DIRECTION_FILTERS,
     CONF_ROUTE_FILTER,
     CONF_STATION_NAME,
     CONF_STOP_ID,
@@ -35,25 +35,25 @@ _SHARED_STATIC_SCHEDULE_LAST_UPDATE = None
 async def get_shared_static_schedule(hass: HomeAssistant):
     """Get or create the shared static schedule."""
     global _SHARED_STATIC_SCHEDULE, _SHARED_STATIC_SCHEDULE_LAST_UPDATE
-    
+
     now = datetime.now()
-    
-    if (_SHARED_STATIC_SCHEDULE is None or 
+
+    if (_SHARED_STATIC_SCHEDULE is None or
         _SHARED_STATIC_SCHEDULE_LAST_UPDATE is None or
         (now - _SHARED_STATIC_SCHEDULE_LAST_UPDATE).total_seconds() > STATIC_SCHEDULE_UPDATE_INTERVAL):
-        
+
         try:
             _LOGGER.info("Downloading LIRR static schedule (shared)...")
             if _SHARED_STATIC_SCHEDULE is None:
                 _SHARED_STATIC_SCHEDULE = StaticSchedule()
-            
+
             session = async_get_clientsession(hass)
             await _SHARED_STATIC_SCHEDULE.async_load_schedule(LIRR_STATIC_SCHEDULE_URL, session)
             _SHARED_STATIC_SCHEDULE_LAST_UPDATE = now
             _LOGGER.info("Shared static schedule updated successfully")
         except Exception as err:
             _LOGGER.error("Failed to update shared static schedule: %s", err)
-    
+
     return _SHARED_STATIC_SCHEDULE
 
 
@@ -64,19 +64,19 @@ class LIRRDataUpdateCoordinator(DataUpdateCoordinator):
         """Initialize."""
         self.stop_id = str(station_config[CONF_STOP_ID])
         self.station_name = station_config[CONF_STATION_NAME]
-        self.direction_filter = station_config.get(CONF_DIRECTION_FILTER, "")
+        self.direction_filters = station_config.get(CONF_DIRECTION_FILTERS, ["All Trains"])
         self.route_filter = station_config.get(CONF_ROUTE_FILTER, "")
         self.departure_limit = int(station_config.get(CONF_DEPARTURE_LIMIT, 8))
-        
+
         _LOGGER.info(
-            "Initialized LIRR coordinator for stop_id: %s, station: %s, direction_filter: '%s', route_filter: '%s', departure_limit: %d",
+            "Initialized LIRR coordinator for stop_id: %s, station: %s, direction_filters: %s, route_filter: '%s', departure_limit: %d",
             self.stop_id,
             self.station_name,
-            self.direction_filter,
+            self.direction_filters,
             self.route_filter,
             self.departure_limit,
         )
-        
+
         super().__init__(
             hass,
             _LOGGER,
@@ -85,9 +85,9 @@ class LIRRDataUpdateCoordinator(DataUpdateCoordinator):
         )
 
     async def _async_update_data(self):
-        """Fetch data from LIRR GTFS-RT."""
+        """Fetch data from LIRR GTFS-RT and organize by direction filter."""
         static_schedule = await get_shared_static_schedule(self.hass)
-        
+
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(LIRR_GTFS_URL, timeout=aiohttp.ClientTimeout(total=30)) as response:
@@ -95,38 +95,39 @@ class LIRRDataUpdateCoordinator(DataUpdateCoordinator):
                         raise UpdateFailed(
                             f"Error fetching LIRR data: HTTP {response.status}"
                         )
-                    
+
                     data = await response.read()
                     feed = gtfs_realtime_pb2.FeedMessage()
                     feed.ParseFromString(data)
-                    
+
                     _LOGGER.debug("Successfully parsed GTFS-RT feed with %d entities", len(feed.entity))
-                    
-                    departures = []
+
+                    # Collect all departures first
+                    all_departures = []
                     current_time = datetime.now()
-                    
+
                     all_stop_ids = set()
                     matched_stops = 0
-                    
+
                     for entity in feed.entity:
                         if not entity.HasField('trip_update'):
                             continue
-                        
+
                         trip_update = entity.trip_update
                         trip = trip_update.trip
-                        
+
                         for stop_time_update in trip_update.stop_time_update:
                             stop_id_str = str(stop_time_update.stop_id)
                             all_stop_ids.add(stop_id_str)
-                            
+
                             if stop_id_str == self.stop_id:
                                 matched_stops += 1
-                                
+
                                 headsign = static_schedule.get_trip_headsign(trip.trip_id) if static_schedule else ""
-                                
+
                                 if not headsign and hasattr(trip, 'trip_headsign') and trip.trip_headsign:
                                     headsign = trip.trip_headsign
-                                
+
                                 if not headsign and static_schedule:
                                     route_name = static_schedule.get_route_name(trip.route_id)
                                     if route_name:
@@ -135,25 +136,8 @@ class LIRRDataUpdateCoordinator(DataUpdateCoordinator):
                                         headsign = f"Route {trip.route_id}"
                                 elif not headsign:
                                     headsign = f"Route {trip.route_id}"
-                                
-                                _LOGGER.debug(
-                                    "Found departure for stop %s: route=%s, headsign='%s', trip_id=%s",
-                                    self.stop_id,
-                                    trip.route_id,
-                                    headsign,
-                                    trip.trip_id
-                                )
-                                
-                                if self.direction_filter and headsign:
-                                    filters = [f.strip() for f in self.direction_filter.split('|') if f.strip()]
-                                    if not any(f.lower() in headsign.lower() for f in filters):
-                                        _LOGGER.debug(
-                                            "Departure filtered out by direction: headsign='%s', filter='%s'",
-                                            headsign,
-                                            self.direction_filter
-                                        )
-                                        continue
-                                
+
+                                # Apply route filter if specified
                                 if self.route_filter:
                                     route_filters = [f.strip() for f in self.route_filter.split('|') if f.strip()]
                                     if not any(f in trip.route_id for f in route_filters):
@@ -163,7 +147,7 @@ class LIRRDataUpdateCoordinator(DataUpdateCoordinator):
                                             self.route_filter
                                         )
                                         continue
-                                
+
                                 if stop_time_update.HasField('departure'):
                                     dep_time = datetime.fromtimestamp(stop_time_update.departure.time)
                                 elif stop_time_update.HasField('arrival'):
@@ -171,39 +155,68 @@ class LIRRDataUpdateCoordinator(DataUpdateCoordinator):
                                 else:
                                     _LOGGER.debug("Stop time update has no departure or arrival time")
                                     continue
-                                
+
                                 if dep_time < current_time:
                                     _LOGGER.debug("Departure in the past, skipping")
                                     continue
-                                
+
                                 minutes_until = int((dep_time - current_time).total_seconds() / 60)
-                                
-                                departures.append({
+
+                                all_departures.append({
                                     'headsign': headsign,
                                     'departure_time': dep_time.strftime('%I:%M %p'),
                                     'minutes_until': minutes_until,
                                     'route_id': trip.route_id,
                                     'trip_id': trip.trip_id,
                                 })
-                    
+
+                    # Sort all departures by time
+                    all_departures.sort(key=lambda x: x['minutes_until'])
+
+                    # Filter departures by each direction filter
+                    result = {}
+
+                    for direction_filter in self.direction_filters:
+                        if direction_filter == "All Trains":
+                            # No filtering, just take the next N departures
+                            result[direction_filter] = all_departures[:self.departure_limit]
+                        else:
+                            # Filter by headsign
+                            filtered = []
+                            filters = [f.strip() for f in direction_filter.split('|') if f.strip()]
+
+                            for departure in all_departures:
+                                headsign = departure['headsign']
+                                if any(f.lower() in headsign.lower() for f in filters):
+                                    filtered.append(departure)
+                                    if len(filtered) >= self.departure_limit:
+                                        break
+
+                            result[direction_filter] = filtered
+
                     _LOGGER.info(
-                        "LIRR Update: Looking for stop_id=%s, found %d matching stops, %d departures after filtering",
+                        "LIRR Update: stop_id=%s, matched %d stops, organized into %d direction filters",
                         self.stop_id,
                         matched_stops,
-                        len(departures),
+                        len(result),
                     )
-                    
+
+                    for filter_name, departures in result.items():
+                        _LOGGER.debug(
+                            "  Filter '%s': %d departures",
+                            filter_name,
+                            len(departures)
+                        )
+
                     if matched_stops == 0:
                         _LOGGER.warning(
                             "No stops found matching stop_id=%s. Sample stop IDs: %s",
                             self.stop_id,
                             list(sorted(all_stop_ids))[:20]
                         )
-                    
-                    departures.sort(key=lambda x: x['minutes_until'])
-                    
-                    return departures[:int(self.departure_limit)]
-                    
+
+                    return result
+
         except aiohttp.ClientError as err:
             _LOGGER.error("Error communicating with LIRR API: %s", err)
             raise UpdateFailed(f"Error communicating with LIRR API: {err}") from err
