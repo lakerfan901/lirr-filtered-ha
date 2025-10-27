@@ -1,0 +1,17 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up LIRR Filtered Departures",
+        "description": "Configure your LIRR station and filters.\n\nStation Name: {station_name_example}\nStop ID: {stop_id_example}\nDirection Filter: {direction_filter_example}\nRoute Filter: {route_filter_example}",
+        "data": {
+          "station_name": "Station Name",
+          "stop_id": "Stop ID",
+          "direction_filter": "Direction Filter (optional)",
+          "route_filter": "Route Filter (optional)",
+          "departure_limit": "Number of Departures to Show"
+        }
+      }
+    }
+  }
+}

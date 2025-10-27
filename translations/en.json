@@ -1,0 +1,41 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up LIRR Filtered Departures",
+        "description": "Configure your LIRR station and filters.\n\nStation Name: {station_name_example}\nStop ID: {stop_id_example}\nDirection Filter: {direction_filter_example}\nRoute Filter: {route_filter_example}",
+        "data": {
+          "station_name": "Station Name",
+          "stop_id": "Stop ID",
+          "direction_filter": "Direction Filter (optional)",
+          "route_filter": "Route Filter (optional)",
+          "departure_limit": "Number of Departures to Show"
+        },
+        "data_description": {
+          "station_name": "Friendly name for this station (e.g., 'Valley Stream Westbound')",
+          "stop_id": "GTFS Stop ID for this station",
+          "direction_filter": "Filter by destination. Use | to separate multiple (e.g., 'Penn Station|Jamaica')",
+          "route_filter": "Filter by route ID. Use | to separate multiple (e.g., '7|9')",
+          "departure_limit": "How many departures to track (1-20)"
+        }
+      }
+    },
+    "options": {
+      "step": {
+        "init": {
+          "title": "Update LIRR Filters",
+          "data": {
+            "direction_filter": "Direction Filter",
+            "route_filter": "Route Filter",
+            "departure_limit": "Number of Departures"
+          },
+          "data_description": {
+            "direction_filter": "Filter by destination. Use | to separate multiple (e.g., 'Penn Station|Jamaica')",
+            "route_filter": "Filter by route ID. Use | to separate multiple (e.g., '7|9')",
+            "departure_limit": "How many departures to track (1-20)"
+          }
+        }
+      }
+    }
+  }
+}
