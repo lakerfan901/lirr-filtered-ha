@@ -36,12 +36,48 @@ class LIRRFilteredConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
         """Handle the initial step."""
-        return await self.async_step_add_station(user_input)
+        if user_input is not None:
+            # First station added
+            station_config = {
+                CONF_STATION_NAME: user_input[CONF_STATION_NAME],
+                CONF_STOP_ID: user_input[CONF_STOP_ID],
+                CONF_DIRECTION_FILTER: user_input.get(CONF_DIRECTION_FILTER, ""),
+                CONF_ROUTE_FILTER: user_input.get(CONF_ROUTE_FILTER, ""),
+                CONF_DEPARTURE_LIMIT: int(user_input.get(CONF_DEPARTURE_LIMIT, DEFAULT_DEPARTURE_LIMIT)),
+            }
+            self.stations.append(station_config)
+
+            return await self.async_step_add_another()
+
+        data_schema = vol.Schema({
+            vol.Required(CONF_STATION_NAME): TextSelector(
+                TextSelectorConfig(multiline=False)
+            ),
+            vol.Required(CONF_STOP_ID): TextSelector(
+                TextSelectorConfig(multiline=False)
+            ),
+            vol.Optional(CONF_DIRECTION_FILTER, default=""): TextSelector(
+                TextSelectorConfig(multiline=False)
+            ),
+            vol.Optional(CONF_ROUTE_FILTER, default=""): TextSelector(
+                TextSelectorConfig(multiline=False)
+            ),
+            vol.Required(CONF_DEPARTURE_LIMIT, default=DEFAULT_DEPARTURE_LIMIT): NumberSelector(
+                NumberSelectorConfig(min=1, max=20, step=1, mode=NumberSelectorMode.BOX)
+            ),
+        })
+
+        return self.async_show_form(
+            step_id="user",
+            data_schema=data_schema,
+            description_placeholders={
+                "station_name_example": "e.g., Valley Stream Westbound",
+                "stop_id_example": "e.g., 211",
+            }
+        )
 
     async def async_step_add_station(self, user_input: dict[str, Any] | None = None):
-        """Add a station configuration."""
-        errors = {}
-
+        """Add another station configuration."""
         if user_input is not None:
             # Add this station to the list
             station_config = {
@@ -52,8 +88,8 @@ class LIRRFilteredConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_DEPARTURE_LIMIT: int(user_input.get(CONF_DEPARTURE_LIMIT, DEFAULT_DEPARTURE_LIMIT)),
             }
             self.stations.append(station_config)
-            
-            # Ask if they want to add another station
+
+            # Go back to ask if they want to add another
             return await self.async_step_add_another()
 
         data_schema = vol.Schema({
@@ -75,14 +111,11 @@ class LIRRFilteredConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         })
 
         station_count = len(self.stations)
-        description = "Configure your LIRR station and filters."
-        if station_count > 0:
-            description = f"You have added {station_count} station(s). Add another station."
+        description = f"You have added {station_count} station(s). Add another station."
 
         return self.async_show_form(
             step_id="add_station",
             data_schema=data_schema,
-            errors=errors,
             description_placeholders={
                 "description": description,
             }
